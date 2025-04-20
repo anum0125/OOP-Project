@@ -1,1 +1,410 @@
+#include "raylib.h"
+#include <iostream>
+#include <cmath>
+#include <ctime>
+
+// FINAL (POLYMORPHISM)
+
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = 800;
+const int TILE_SIZE = 100;
+const int BOARD_SIZE = 8;
+
+enum Player { HUMAN, AI, NONE };
+
+class PieceBase {
+    protected:
+        bool isKing;
+        bool isAI;
+        int row, col;
+    
+    public:
+        PieceBase(bool ai = false, int r = 0, int c = 0) : isKing(false), isAI(ai), row(r), col(c) {}
+        virtual ~PieceBase() {}
+    
+        void MakeKing() { isKing = true; }
+        bool IsKing() const { return isKing; }
+        bool IsAI() const { return isAI; }
+        int GetRow() const { return row; }
+        int GetCol() const { return col; }
+        void MoveTo(int r, int c) { row = r; col = c; }
+    
+        virtual void Draw(bool highlight = false) const = 0; // Pure virtual
+};
+
+class HumanPiece : public PieceBase {
+    public:
+        HumanPiece(int r, int c) : PieceBase(false, r, c) {}
+    
+        void Draw(bool highlight = false) const override {
+            if (highlight) DrawCircle(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, TILE_SIZE / 2 - 5, YELLOW);
+            DrawCircle(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, TILE_SIZE / 3, BLUE);
+            if (isKing) DrawText("K", col * TILE_SIZE + 40, row * TILE_SIZE + 30, 20, YELLOW);
+        }
+    };
+    
+    class AIPiece : public PieceBase {
+    public:
+        AIPiece(int r, int c) : PieceBase(true, r, c) {}
+    
+        void Draw(bool highlight = false) const override {
+            if (highlight) DrawCircle(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, TILE_SIZE / 2 - 5, YELLOW);
+            DrawCircle(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, TILE_SIZE / 3, RED);
+            if (isKing) DrawText("K", col * TILE_SIZE + 40, row * TILE_SIZE + 30, 20, YELLOW);
+        }
+    };
+    
+    
+
+class Board {
+private:
+    PieceBase* board[BOARD_SIZE][BOARD_SIZE];
+
+public:
+    Board() { Reset(); }
+
+    ~Board() {
+        for (int r = 0; r < BOARD_SIZE; ++r)
+            for (int c = 0; c < BOARD_SIZE; ++c)
+                delete board[r][c];
+    }
+
+    void Reset() {
+        for (int r = 0; r < BOARD_SIZE; ++r)
+            for (int c = 0; c < BOARD_SIZE; ++c)
+                board[r][c] = nullptr;
+
+        for (int r = 0; r < 3; ++r)
+            for (int c = (r + 1) % 2; c < BOARD_SIZE; c += 2)
+                board[r][c] = new AIPiece(r, c);
+
+        for (int r = BOARD_SIZE - 3; r < BOARD_SIZE; ++r)
+            for (int c = (r + 1) % 2; c < BOARD_SIZE; c += 2)
+                board[r][c] = new HumanPiece(r, c);
+    }
+
+    PieceBase* GetPiece(int r, int c) const {
+        if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) return nullptr;
+        return board[r][c];
+    }
+
+    void MovePiece(int r1, int c1, int r2, int c2) {
+        board[r2][c2] = board[r1][c1];
+        board[r1][c1] = nullptr;
+        if (board[r2][c2]) board[r2][c2]->MoveTo(r2, c2);
+
+        if (board[r2][c2] && !board[r2][c2]->IsKing()) {
+            if ((board[r2][c2]->IsAI() && r2 == BOARD_SIZE - 1) || (!board[r2][c2]->IsAI() && r2 == 0)) {
+                board[r2][c2]->MakeKing();
+            }
+        }
+    }
+
+    void RemovePiece(int r, int c) {
+        delete board[r][c];
+        board[r][c] = nullptr;
+    }
+
+    void Draw(int highlightRow = -1, int highlightCol = -1) const {
+        for (int r = 0; r < BOARD_SIZE; ++r) {
+            for (int c = 0; c < BOARD_SIZE; ++c) {
+                Color tileColor = ((r + c) % 2 == 0) ? LIGHTGRAY : DARKGRAY;
+                DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE, tileColor);
+                if (board[r][c]) {
+                    bool highlight = (r == highlightRow && c == highlightCol);
+                    board[r][c]->Draw(highlight);
+                }
+            }
+        }
+    }
+
+    bool HasMoves(bool isAI) const {
+        int dr[4] = {1, 1, -1, -1};
+        int dc[4] = {-1, 1, -1, 1};
+    
+        for (int r = 0; r < BOARD_SIZE; ++r) {
+            for (int c = 0; c < BOARD_SIZE; ++c) {
+                PieceBase* p = board[r][c];
+                if (p && p->IsAI() == isAI) {
+                    for (int d = 0; d < 4; ++d) {
+                        if (!p->IsKing() && ((isAI && dr[d] < 0) || (!isAI && dr[d] > 0))) continue;
+    
+                        // Normal move
+                        int nr = r + dr[d];
+                        int nc = c + dc[d];
+                        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                            board[nr][nc] == nullptr)
+                            return true;
+    
+                        // Capture move
+                        int mr = r + dr[d];
+                        int mc = c + dc[d];
+                        int tr = r + 2 * dr[d];
+                        int tc = c + 2 * dc[d];
+                        if (tr >= 0 && tr < BOARD_SIZE && tc >= 0 && tc < BOARD_SIZE) {
+                            PieceBase* middle = board[mr][mc];
+                            if (middle && middle->IsAI() != p->IsAI() && board[tr][tc] == nullptr)
+                                return true;
+                        }
+                    }
+                }
+            }
+        }
+    
+        return false;
+    }
+    
+
+    bool HasForcedCaptures(bool isAI, int& highlightRow, int& highlightCol) const {
+        for (int r = 0; r < BOARD_SIZE; ++r) {
+            for (int c = 0; c < BOARD_SIZE; ++c) {
+                PieceBase* p = board[r][c];
+                if (p && p->IsAI() == isAI) {
+                    int dr[4] = {1, 1, -1, -1};
+                    int dc[4] = {-1, 1, -1, 1};
+                    for (int d = 0; d < 4; ++d) {
+                        if (!p->IsKing() && ((isAI && dr[d] < 0) || (!isAI && dr[d] > 0))) continue;
+                        int mr = r + dr[d];
+                        int mc = c + dc[d];
+                        int tr = r + 2 * dr[d];
+                        int tc = c + 2 * dc[d];
+                        if (tr >= 0 && tr < BOARD_SIZE && tc >= 0 && tc < BOARD_SIZE) {
+                            PieceBase* middle = board[mr][mc];
+                            if (board[tr][tc] == nullptr &&
+                                middle && middle->IsAI() != p->IsAI()) {
+                                highlightRow = mr;
+                                highlightCol = mc;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    bool CanCapture(PieceBase* p) const {
+        if (!p) return false;
+        int r = p->GetRow();
+        int c = p->GetCol();
+        int dr[4] = {1, 1, -1, -1};
+        int dc[4] = {-1, 1, -1, 1};
+        for (int d = 0; d < 4; ++d) {
+            if (!p->IsKing() && ((p->IsAI() && dr[d] < 0) || (!p->IsAI() && dr[d] > 0))) continue;
+            int mr = r + dr[d];
+            int mc = c + dc[d];
+            int tr = r + 2 * dr[d];
+            int tc = c + 2 * dc[d];
+            if (tr >= 0 && tr < BOARD_SIZE && tc >= 0 && tc < BOARD_SIZE) {
+                PieceBase* middle = board[mr][mc];
+                if (board[tr][tc] == nullptr && middle && middle->IsAI() != p->IsAI()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+};
+
+int main() {
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Checkers Game");
+    SetTargetFPS(60);
+
+    Board board;
+    Player currentTurn = HUMAN;
+    PieceBase* selectedPiece = nullptr;
+    bool gameOver = false;
+    Player winner = NONE;
+    float endTimer = 0;
+    float aiWaitTimer = 0;
+    float invalidMoveTimer = 0;
+    bool showInvalidMove = false;
+    int highlightRow = -1, highlightCol = -1;
+    bool playerMultiCapture = false;
+    int lastCaptureRow = -1, lastCaptureCol = -1;
+    bool aiMultiCapture = false;
+    int aiCaptureRow = -1, aiCaptureCol = -1;
+
+    while (!WindowShouldClose()) {
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        board.HasForcedCaptures(currentTurn == AI, highlightRow, highlightCol);
+        board.Draw(highlightRow, highlightCol);
+
+        if (currentTurn == HUMAN)
+            DrawText("Player Turn", 10, 10, 30, BLUE);
+        else
+            DrawText("AI Turn", 10, 10, 30, RED);
+
+        if (showInvalidMove) {
+            DrawText("Invalid move: Capture is available!", 200, 750, 25, RED);
+            invalidMoveTimer += GetFrameTime();
+            if (invalidMoveTimer > 3.0f) {
+                showInvalidMove = false;
+                invalidMoveTimer = 0;
+            }
+        }
+
+        if (gameOver) {
+            const char* result = (winner == HUMAN) ? "YOU WIN" : "YOU LOSE";
+            Color color = (winner == HUMAN) ? GREEN : RED;
+            DrawText(result, 300, 350, 40, color);
+
+            endTimer += GetFrameTime();
+            if (endTimer > 5) {
+                DrawText("Click to Play Again", 270, 420, 30, BLACK);
+                if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                    board.Reset();
+                    selectedPiece = nullptr;
+                    currentTurn = HUMAN;
+                    winner = NONE;
+                    gameOver = false;
+                    endTimer = 0;
+                    aiWaitTimer = 0;
+                }
+            }
+
+            EndDrawing();
+            continue;
+        }
+
+        if (currentTurn == HUMAN && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            int x = GetMouseX() / TILE_SIZE;
+            int y = GetMouseY() / TILE_SIZE;
+            PieceBase* clicked = board.GetPiece(y, x);
+
+            if (selectedPiece) {
+                int sr = selectedPiece->GetRow();
+                int sc = selectedPiece->GetCol();
+                int dr = y - sr;
+                int dc = x - sc;
+
+                if ((abs(dr) == 1 && abs(dc) == 1) || (abs(dr) == 2 && abs(dc) == 2)) {
+                    if (!selectedPiece->IsKing()) {
+                        if ((selectedPiece->IsAI() && dr < 0) || (!selectedPiece->IsAI() && dr > 0)) {
+                            selectedPiece = nullptr;
+                            EndDrawing();
+                            continue;
+                        }
+                    }
+
+                    if (abs(dr) == 2) {
+                        int mr = sr + dr / 2;
+                        int mc = sc + dc / 2;
+                        PieceBase* middle = board.GetPiece(mr, mc);
+                        if (middle && middle->IsAI() != selectedPiece->IsAI()) {
+                            board.RemovePiece(mr, mc);
+                            board.MovePiece(sr, sc, y, x);
+                            selectedPiece = board.GetPiece(y, x);
+                            if (board.CanCapture(selectedPiece)) {
+                                playerMultiCapture = true;
+                            } else {
+                                playerMultiCapture = false;
+                                selectedPiece = nullptr;
+                                currentTurn = AI;
+                            }
+                        }
+                    } else {
+                        int dummy1 = -1, dummy2 = -1;
+                        if (board.HasForcedCaptures(false, dummy1, dummy2)) {
+                            showInvalidMove = true;
+                        } else {
+                            board.MovePiece(sr, sc, y, x);
+                            selectedPiece = nullptr;
+                            currentTurn = AI;
+                        }
+                    }
+                } else {
+                    selectedPiece = nullptr;
+                }
+            } else if (clicked && !clicked->IsAI()) {
+                if (!playerMultiCapture || (clicked->GetRow() == lastCaptureRow && clicked->GetCol() == lastCaptureCol))
+                    selectedPiece = clicked;
+            }
+        }
+
+        if (currentTurn == AI) {
+            aiWaitTimer += GetFrameTime();
+            if (aiWaitTimer > 1.0f) {
+                bool madeMove = false;
+                for (int r = 0; r < BOARD_SIZE && !madeMove; ++r) {
+                    for (int c = 0; c < BOARD_SIZE && !madeMove; ++c) {
+                        PieceBase* aiPiece = board.GetPiece(r, c);
+                        if (aiPiece && aiPiece->IsAI()) {
+                            int dr[4] = {1, 1, -1, -1};
+                            int dc[4] = {-1, 1, -1, 1};
+                            for (int d = 0; d < 4; ++d) {
+                                if (!aiPiece->IsKing() && dr[d] < 0) continue;
+                                int mr = r + dr[d];
+                                int mc = c + dc[d];
+                                int tr = r + 2 * dr[d];
+                                int tc = c + 2 * dc[d];
+                                if (tr >= 0 && tr < BOARD_SIZE && tc >= 0 && tc < BOARD_SIZE) {
+                                    PieceBase* middle = board.GetPiece(mr, mc);
+                                    if (board.GetPiece(tr, tc) == nullptr && middle && !middle->IsAI()) {
+                                        board.RemovePiece(mr, mc);
+                                        board.MovePiece(r, c, tr, tc);
+                                        aiCaptureRow = tr;
+                                        aiCaptureCol = tc;
+                                        aiMultiCapture = true;
+                                        madeMove = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!madeMove && !aiMultiCapture) {
+                    for (int r = 0; r < BOARD_SIZE && !madeMove; ++r) {
+                        for (int c = 0; c < BOARD_SIZE && !madeMove; ++c) {
+                            PieceBase* aiPiece = board.GetPiece(r, c);
+                            if (aiPiece && aiPiece->IsAI()) {
+                                int dr[4] = {1, 1, -1, -1};
+                                int dc[4] = {-1, 1, -1, 1};
+                                for (int d = 0; d < 4; ++d) {
+                                    if (!aiPiece->IsKing() && dr[d] < 0) continue;
+                                    int nr = r + dr[d];
+                                    int nc = c + dc[d];
+                                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                        board.GetPiece(nr, nc) == nullptr) {
+                                        board.MovePiece(r, c, nr, nc);
+                                        madeMove = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    currentTurn = HUMAN;
+                }
+
+                if (aiMultiCapture && board.CanCapture(board.GetPiece(aiCaptureRow, aiCaptureCol))) {
+                    // Continue AI multi-capture next frame
+                } else if (aiMultiCapture) {
+                    aiMultiCapture = false;
+                    currentTurn = HUMAN;
+                }
+
+                aiWaitTimer = 0;
+            }
+        }
+
+        if (!board.HasMoves(true)) {
+            winner = HUMAN;
+            gameOver = true;
+        } else if (!board.HasMoves(false)) {
+            winner = AI;
+            gameOver = true;
+        }
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+    return 0;
+}
 
