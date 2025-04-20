@@ -269,9 +269,6 @@ public:
     }
 };
   
-
-//class AIPlayer{};
-
 GameState gameState = MENU;
      
 class Game {
